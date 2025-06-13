@@ -64,9 +64,9 @@ kind: Task
 metadata:
   name: deploy
   labels:
-    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/version: "0.0.2"
   annotations:
-    tekton.dev/displayName: "Deploy"
+    tekton.dev/displayName: "Deploy with KEDA-ready deployment"
     tekton.dev/platforms: "linux/amd64"
     description: Deploys the application to the CI environment for verification
 spec:
@@ -92,15 +92,40 @@ spec:
       image: $(params.step-image)
       script: |
         #!/usr/bin/env bash
-        # Check for existing deployment
-        if kubectl get deploy $(params.app-name) &> /dev/null; then
-          echo "Deployment $(params.app-name) exists, updating image"
-          kubectl set image deployment/$(params.app-name) $(params.app-name)=$(params.image)
-        else
-          echo "Creating deployment $(params.app-name)"
-          kubectl create deploy $(params.app-name) --image $(params.image) --port $(params.app-port)
-          kubectl set env --from=secret/$(params.app-name)-config deployment/$(params.app-name) # NEW LINE
-          kubectl expose deploy $(params.app-name) --port $(params.app-port)
-          oc expose svc $(params.app-name)
-        fi
+        echo "Applying deployment for $(params.app-name)..."
+
+        cat <<EOF | kubectl apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: $(params.app-name)
+          labels:
+            app: $(params.app-name)
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: $(params.app-name)
+          template:
+            metadata:
+              labels:
+                app: $(params.app-name)
+            spec:
+              containers:
+              - name: $(params.app-name)
+                image: $(params.image)
+                ports:
+                - containerPort: $(params.app-port)
+                envFrom:
+                - secretRef:
+                    name: $(params.app-name)-config
+        EOF
+
+        echo "Exposing deployment..."
+        kubectl expose deploy $(params.app-name) --port=$(params.app-port) || true
+
+        echo "Trying to expose via OpenShift route (if available)..."
+        oc expose svc $(params.app-name) || echo "oc expose failed (not OpenShift?)"
+
+        echo "Waiting for deployment to become available..."
         kubectl wait --timeout=60s --for=condition=Available deploy/$(params.app-name)
