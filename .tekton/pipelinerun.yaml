@@ -68,6 +68,30 @@ spec:
               workingDir: $(workspaces.source.path)
               script: |
                 exit 0
+
+      - name: deploy
+        runAfter:
+          - fetch-repository
+        workspaces:
+          - name: source
+            workspace: source
+          - name: kubeconfig
+            workspace: kubeconfig
+        taskSpec:
+          workspaces:
+            - name: source
+            - name: kubeconfig
+          steps:
+            - name: kubectl-apply
+              image: bitnami/kubectl:latest
+              workingDir: $(workspaces.source.path)
+              env:
+                - name: KUBECONFIG
+                  value: /kubeconfig/config
+              script: |
+                echo "Deploying manifest..."
+                kubectl apply -f k8s/deployment.yaml
+                
   workspaces:
   - name: source
     volumeClaimTemplate:
