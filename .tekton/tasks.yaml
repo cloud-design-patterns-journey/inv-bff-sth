@@ -101,6 +101,7 @@ spec:
           name: $(params.app-name)
           labels:
             app: $(params.app-name)
+          namespace: $(context.namespace)
         spec:
           replicas: 1
           selector:
